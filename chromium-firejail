@@ -1,0 +1,74 @@
+#!/bin/bash
+
+# Script for install Ungoogled Chromium Portable for linux to home dir and run
+
+# Define installation path
+INSTALL_DIR="$HOME/chromium"
+
+# API URL for the portable Linux binaries repository
+REPO_URL="https://api.github.com/repos/ungoogled-software/ungoogled-chromium-portablelinux/releases/latest"
+
+# Get the download URL for the 64-bit .tar.xz archive
+echo "Fetching latest version info from GitHub..."
+JSON_DATA=$(curl -s $REPO_URL)
+
+# Look for the asset that contains 'linux_x86-64' and '.tar.xz'
+DOWNLOAD_URL=$(echo "$JSON_DATA" | grep "browser_download_url" | grep "x86_64" | grep "tar.xz" | head -n 1 | cut -d '"' -f 4)
+
+# Extract version tag for comparison
+VERSION_TAG=$(echo "$JSON_DATA" | grep '"tag_name":' | sed -E 's/.*"([^"]+)".*/\1/')
+
+if [ -z "$DOWNLOAD_URL" ] || [ "$DOWNLOAD_URL" == "null" ]; then
+    echo "Error: Could not find a suitable Linux 64-bit asset."
+    exit 1
+fi
+
+set -x
+
+# Check the currently installed version (if exists)
+if [ -L "$INSTALL_DIR/latest" ]; then
+    CURRENT_VERSION=$(basename $(readlink "$INSTALL_DIR/latest"))
+else
+    CURRENT_VERSION="none"
+fi
+
+if [ "$CURRENT_VERSION" == "$VERSION_TAG" ]; then
+    echo "Ungoogled Chromium is already up to date ($VERSION_TAG)."
+else
+    echo "New version found: $VERSION_TAG"
+    echo "Downloading: $DOWNLOAD_URL"
+
+    # Preparation and Download
+    mkdir -p "$INSTALL_DIR/$VERSION_TAG"
+    TEMP_ARCHIVE="/tmp/${DOWNLOAD_URL##*/}"
+
+    curl -# -L -o "$TEMP_ARCHIVE" "$DOWNLOAD_URL"
+    [ $? -eq 0 ] && echo "Download successful" || { echo "Download failed with exit code $?"; exit 1; }
+
+    # Extracting
+    echo "Extracting files to $INSTALL_DIR..."
+    # --strip-components=1 removes the top-level folder inside the archive
+    tar -xJf "$TEMP_ARCHIVE" -C "$INSTALL_DIR/$VERSION_TAG" --strip-components=1
+
+    # Store the revision number for future checks
+    rm "$INSTALL_DIR/latest"
+    ln -s "$VERSION_TAG" "$INSTALL_DIR/latest"
+
+    # Cleanup temporary files
+    rm "$TEMP_ARCHIVE"
+
+    echo "Update complete! Binary location: $INSTALL_DIR/$VERSION_TAG/chrome-linux/chrome"
+    echo "Launch symlink: $INSTALL_DIR/latest/chrome-linux/chrome"
+fi
+
+CHROME_BIN="$INSTALL_DIR/latest/chrome"
+
+# Check if firejail is installed
+if command -v firejail >/dev/null 2>&1; then
+    echo "Firejail detected. Launching Chromium in sandbox..."
+    # Using --profile=chromium to ensure correct security rules are applied
+    firejail --whitelist=/home/lini/chromium/ --ignore=noexec --profile=chromium "$CHROME_BIN"
+else
+    echo "Firejail not found. Launching Chromium directly..."
+    "$CHROME_BIN"
+fi
