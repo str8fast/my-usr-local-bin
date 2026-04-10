@@ -1,0 +1,11 @@
+#!/bin/sh
+
+set -x
+
+# Check and install updates for Chromium
+flatpak update -y org.chromium.Chromium
+
+# Option "--filesystem=/tmp" for expose /tmp filesystem cuz we have move ".cache" there
+
+# Run with DBus support
+dbus-run-session flatpak run -v --filesystem=/tmp --filesystem=/dev/shm org.chromium.Chromium -- $@
